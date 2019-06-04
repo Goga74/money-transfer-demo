@@ -3,54 +3,57 @@ package com.izam.data.account;
 import com.izam.app.api.ErrorResponse;
 import com.izam.domain.account.Account;
 import com.izam.domain.account.AccountRepository;
+import org.mapdb.DB;
+import org.mapdb.DBMaker;
+import org.mapdb.Serializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.ConcurrentMap;
 
 public class InMemoryRepository implements AccountRepository {
     private static final Logger log = LoggerFactory.getLogger(InMemoryRepository.class);
 
-    private static final Map MEMORY_STORE = new ConcurrentHashMap<String, BigDecimal>();
-    final ReentrantReadWriteLock rwl = new ReentrantReadWriteLock();
+    private DB db = DBMaker.memoryDB()
+            .transactionEnable()
+            .closeOnJvmShutdown()
+            .make();
+
+    private ConcurrentMap<String, BigDecimal> map = db
+            .hashMap("MEMORY_STORE", Serializer.STRING, Serializer.BIG_DECIMAL)
+            .createOrOpen();
 
     @Override
-    @SuppressWarnings("unchecked")
     public Account getAccount(final String login) {
-        return Account.builder()
+        Account account = Account.builder()
                 .login(login)
-                .amount((BigDecimal) MEMORY_STORE.getOrDefault(login, null))
+                .amount(map.getOrDefault(login, null))
                 .build();
+        db.commit();
+        return account;
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Account setMoney(final String login, final BigDecimal money) {
-        return Account.builder()
+        Account account = Account.builder()
                 .login(login)
-                .amount((BigDecimal) MEMORY_STORE.compute(login, (k, v) -> money))
+                .amount(map.compute(login, (k, v) -> money))
                 .build();
+        db.commit();
+        return account;
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public ErrorResponse transferMoney(final String from, final String to,
                                        final BigDecimal value) {
         /**
          * Transfer money from one account to another should be logical transaction:
          * if one operation has failed whole transaction failed
          */
-        // logical Transaction BEGIN
-
-        rwl.readLock().lock();
-        BigDecimal amountFrom = (BigDecimal) MEMORY_STORE.getOrDefault(from, null);
-        BigDecimal amountTo = (BigDecimal) MEMORY_STORE.getOrDefault(to, null);
-        rwl.readLock().unlock();
-
+        BigDecimal amountFrom = map.getOrDefault(from, null);
+        BigDecimal amountTo = map.getOrDefault(to, null);
         if (amountFrom == null || amountTo == null) {
             String message = String.format("Transaction from account '%s' to account '%s' failed. " +
                             "Account data not found: '%s'", from, to,
@@ -58,23 +61,18 @@ public class InMemoryRepository implements AccountRepository {
             log.error(message);
             return new ErrorResponse(RepositoryStatus.NOT_FOUND.getCode(), message);
         }
-        rwl.writeLock().lock();
-        MEMORY_STORE.computeIfPresent(from, (k,v) -> amountFrom.subtract(value));
-        MEMORY_STORE.computeIfPresent(to, (k,v) -> amountTo.add(value));
-        rwl.writeLock().unlock();
 
-        rwl.readLock().lock();
-        BigDecimal controlAmountFrom = (BigDecimal) MEMORY_STORE.getOrDefault(from, null);
-        BigDecimal controlAmountTo = (BigDecimal) MEMORY_STORE.getOrDefault(to, null);
-        rwl.readLock().unlock();
+        map.computeIfPresent(from, (k, v) -> amountFrom.subtract(value));
+        map.computeIfPresent(to, (k, v) -> amountTo.add(value));
+        db.commit();
 
-        if (!controlAmountFrom.equals(amountFrom.subtract(value))) {
-            String message = String.format("Transaction checking failed, account: '%s'",  from);
-            log.error(message);
-            return new ErrorResponse(RepositoryStatus.BAD_REQUEST.getCode(), message);
-        }
-        if (!controlAmountTo.equals(amountTo.add(value))) {
-            String message = String.format("Transaction checking failed, account: '%s'",  to);
+        // checking transaction: if checking failed = rollback!
+        if (!amountFrom.subtract(value).equals(map.getOrDefault(from, null)) ||
+                !amountTo.add(value).equals(map.getOrDefault(to, null))) {
+
+            db.rollback();
+
+            String message = String.format("Transaction checking failed, from '%s' to '%s'", from, to);
             log.error(message);
             return new ErrorResponse(RepositoryStatus.BAD_REQUEST.getCode(), message);
         }

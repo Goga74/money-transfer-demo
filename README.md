@@ -12,11 +12,17 @@ gradlew clean build
 ### Note about InMemoryRepository.java
 ``````(src\main\java\com\izam\data\account\InMemoryRepository.java)``````
 
-This is a simple implementation of "in-memory-Java-repo" uses Collections.
-Of course, better to use some transactional DB with tables in memory or some another
-implementation.
-For example, HSQLDB or other good "Java-storage-in-memory" 3rd party solution.
-I'll try to implement it in future updates.
+This is a simple implementation of "in-memory-Java-repo" uses [mapdb](http://www.mapdb.org).
+May be better to use some transactional DB with tables in memory (for example, HSQLDB or MySQL) 
+or some another NoSQL implementation.
+Why transactional? - because operation of money transfer between 2 accounts requires a logical 
+transaction: 'if something was wrong', have to rollback changes in both accounts.   
+
+Anyway, it's easy to change implementation of ``````src\main\java\com\izam\domain\account\AccountRepository.java``````
+to another. Please show history of commits as confirmation :)
+
+Also good idea to organize caching.
+It possible in future updates. 
 
 ### application.properties
 There are 2 `application.properties` file - for `run` and for `test`:
