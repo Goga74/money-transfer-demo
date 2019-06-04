@@ -16,12 +16,12 @@ import java.util.concurrent.ConcurrentMap;
 public class InMemoryRepository implements AccountRepository {
     private static final Logger log = LoggerFactory.getLogger(InMemoryRepository.class);
 
-    private DB db = DBMaker.memoryDB()
+    private static final DB db = DBMaker.memoryDB()
             .transactionEnable()
             .closeOnJvmShutdown()
             .make();
 
-    private ConcurrentMap<String, BigDecimal> map = db
+    private static final ConcurrentMap<String, BigDecimal> map = db
             .hashMap("MEMORY_STORE", Serializer.STRING, Serializer.BIG_DECIMAL)
             .createOrOpen();
 
@@ -62,6 +62,7 @@ public class InMemoryRepository implements AccountRepository {
             return new ErrorResponse(RepositoryStatus.NOT_FOUND.getCode(), message);
         }
 
+        // logical Transaction BEGIN
         map.computeIfPresent(from, (k, v) -> amountFrom.subtract(value));
         map.computeIfPresent(to, (k, v) -> amountTo.add(value));
         db.commit();

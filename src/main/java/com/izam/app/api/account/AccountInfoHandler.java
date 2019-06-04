@@ -65,6 +65,11 @@ public class AccountInfoHandler extends Handler {
         AccountInfoResponse response = new AccountInfoResponse(accountInfo.getLogin(),
                 accountInfo.getAmount());
 
+        if (accountInfo.getAmount() == null) {
+            return new ResponseEntity<>(response,
+                    getHeaders(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON), StatusCode.NOT_FOUND);
+        }
+
         return new ResponseEntity<>(response,
                 getHeaders(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON), StatusCode.OK);
     }
